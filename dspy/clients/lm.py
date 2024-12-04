@@ -18,6 +18,7 @@ from dspy.utils.callback import BaseCallback, with_callbacks
 from .base_lm import BaseLM
 
 logger = logging.getLogger(__name__)
+import nflx_copilot as ncp
 
 
 class LM(BaseLM):
@@ -34,7 +35,7 @@ class LM(BaseLM):
         cache: bool = True,
         callbacks: Optional[List[BaseCallback]] = None,
         num_retries: int = 3,
-        provider=None,
+        provider: str = "ncp",
         finetuning_model: Optional[str] = None,
         launch_kwargs: Optional[dict[str, Any]] = None,
         **kwargs,
@@ -77,6 +78,13 @@ class LM(BaseLM):
             assert (
                 max_tokens >= 5000 and temperature == 1.0
             ), "OpenAI's o1-* models require passing temperature=1.0 and max_tokens >= 5000 to `dspy.LM(...)`"
+            
+        if provider == "ncp":
+            self.project_id = self.kwargs.get("project_id")
+            if not self.project_id:
+                raise Exception("ncp provider require passing project_id, i.e., project_id = 'YOUR PROJECT ID'")
+                
+            
 
     @with_callbacks
     def __call__(self, prompt=None, messages=None, **kwargs):
@@ -91,11 +99,16 @@ class LM(BaseLM):
         else:
             completion = cached_litellm_text_completion if cache else litellm_text_completion
 
-        response = completion(
-            request=ujson.dumps(dict(model=self.model, messages=messages, **kwargs)),
-            num_retries=self.num_retries,
-        )
-        outputs = [c.message.content if hasattr(c, "message") else c["text"] for c in response["choices"]]
+        if self.provider == "ncp":
+            ncp.project_id = self.project_id
+            response = ncp.ChatCompletion.create(model = self.model, messages = messages)
+            outputs = [c["message"]["content"] if "message" in c else c["text"] for c in response["choices"]]
+        else:
+            response = completion(
+                request=ujson.dumps(dict(model=self.model, messages=messages, **kwargs)),
+                num_retries=self.num_retries,
+            )
+            outputs = [c.message.content if hasattr(c, "message") else c["text"] for c in response["choices"]]
 
         # Logging, with removed api key & where `cost` is None on cache hit.
         kwargs = {k: v for k, v in kwargs.items() if not k.startswith("api_")}
