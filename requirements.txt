@@ -1,3 +1,4 @@
+nflx-copilot
 backoff
 datasets
 diskcache
